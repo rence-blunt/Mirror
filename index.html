@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sweet Mummy's Mirror</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+
+  <style>
+    html, body {
+      height: 100%;
+    }
+    body {
+      margin: 0;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      position: relative;
+      -webkit-user-select: none;
+      user-select: none;
+      touch-action: manipulation;
+    }
+
+    /* Video Mirror */
+    video {
+      transform: scaleX(-1);
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border: 4px solid gold;        /* Very thin elegant frame */
+      border-radius: 10px;
+      box-shadow: 0 0 8px gold;      /* Subtle glow */
+      transition: filter 0.3s ease;
+      background: #000;              /* Prevent flash on load */
+    }
+
+    /* Beauty filter */
+    .beauty {
+      filter: brightness(1.3) contrast(1.15) saturate(1.2) blur(0.5px);
+    }
+
+    /* Title */
+    .label {
+      position: absolute;
+      top: 14px;
+      font-size: 1.2rem;
+      color: #fff;
+      text-shadow: 0 0 6px gold;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: rgba(0,0,0,0.28);
+      padding: 4px 12px;
+      border-radius: 8px;
+      pointer-events: none;
+    }
+
+    /* Toggle button */
+    .toggle-btn {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 1rem;
+      padding: 10px 16px;
+      background: gold;
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 700;
+      box-shadow: 0 0 10px rgba(255,215,0,0.7);
+      transition: transform 0.1s ease;
+    }
+    .toggle-btn:active { transform: translateX(-50%) scale(0.98); }
+
+    /* Install hint (shown if SW ready but not installed) */
+    .install-hint {
+      position: absolute;
+      bottom: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #fff;
+      font-size: 0.9rem;
+      opacity: 0.8;
+      padding: 4px 8px;
+      background: rgba(0,0,0,0.35);
+      border-radius: 6px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="label">💖Sweet Mummy's Mirror 💖</div>
+  <video id="mirror" autoplay playsinline></video>
+  <button class="toggle-btn" id="toggleFilter" type="button">Enable Beauty Mode ✨</button>
+  <div id="installHint" class="install-hint">Tip: Install the app to use camera offline.</div>
+
+  <script>
+    // --- Service Worker registration ---
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js')
+          .then(() => {
+            // Show install hint if not in standalone
+            const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+            if (!isStandalone) {
+              document.getElementById('installHint').style.display = 'block';
+              setTimeout(() => { document.getElementById('installHint').style.display = 'none'; }, 6000);
+            }
+          })
+          .catch(console.error);
+      });
+    }
+
+    // --- Mirror logic ---
+    const video = document.getElementById('mirror');
+    const toggleBtn = document.getElementById('toggleFilter');
+    let beautyOn = false;
+
+    // Request high-res video (browser will pick the closest supported)
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            facingMode: 'user'
+          },
+          audio: false
+        });
+        video.srcObject = stream;
+        startSmartLightDetection();
+      } catch (err) {
+        alert("Can't access camera. Make sure the app is installed or served over HTTPS/localhost, and camera permissions are allowed.");
+        console.error(err);
+      }
+    }
+
+    // Smart low-light auto-adjust
+    function startSmartLightDetection() {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+      const tick = () => {
+        const w = video.videoWidth, h = video.videoHeight;
+        if (w && h) {
+          canvas.width = w; canvas.height = h;
+          ctx.drawImage(video, 0, 0, w, h);
+          const { data } = ctx.getImageData(0, 0, w, h);
+          let sum = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            sum += (data[i] + data[i+1] + data[i+2]) / 3;
+          }
+          const avg = sum / (data.length / 4);
+
+          // If dark, boost brightness/contrast slightly
+          if (avg < 80) {
+            video.style.filter = 'brightness(1.55) contrast(1.22) saturate(1.12)';
+          } else {
+            video.style.filter = beautyOn
+              ? 'brightness(1.3) contrast(1.15) saturate(1.2) blur(0.5px)'
+              : 'none';
+          }
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+
+    // Beauty toggle
+    toggleBtn.addEventListener('click', () => {
+      beautyOn = !beautyOn;
+      if (beautyOn) {
+        video.classList.add('beauty');
+        toggleBtn.textContent = 'Disable Beauty Mode ❌';
+      } else {
+        video.classList.remove('beauty');
+        toggleBtn.textContent = 'Enable Beauty Mode ✨';
+      }
+    });
+
+    // Kick off
+    startCamera();
+  </script>
+</body>
+</html>
